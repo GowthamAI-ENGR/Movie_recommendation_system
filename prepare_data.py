@@ -58,13 +58,12 @@ movies['cast'] = movies['cast'].apply(lambda x: [i.replace(" ", "") for i in x])
 movies['crew'] = movies['crew'].apply(lambda x: [i.replace(" ", "") for i in x])
 
 # Create tags column
-movies['tags'] = movies['overview'] + movies['genres'] + movies['keywords'] + movies['cast'] + movies['crew']
+movies['tags'] = movies['overview'].fillna('') + ' ' + movies['genres'].apply(lambda x: ' '.join(x)) + ' ' + movies['keywords'].apply(lambda x: ' '.join(x)) + ' ' + movies['cast'].apply(lambda x: ' '.join(x)) + ' ' + movies['crew'].apply(lambda x: ' '.join(x))
 
 # Create new dataframe with relevant columns
 new_df = movies[['movie_id', 'title', 'tags']]
 
-# Convert tags to lowercase and join
-new_df['tags'] = new_df['tags'].apply(lambda x: " ".join(x) if isinstance(x, list) else str(x))
+# Convert tags to lowercase
 new_df['tags'] = new_df['tags'].apply(lambda x: x.lower())
 
 # Create movie dictionary
