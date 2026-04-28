@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+import ast
 
 # -------------------------------
 # Load .env variables
@@ -15,17 +16,97 @@ load_dotenv()
 api_key = os.getenv("TMDB_API_KEY")
 
 # -------------------------------
+# Data Preparation Functions (for when pickle files don't exist)
+# -------------------------------
+def convert(obj):
+    L = []
+    for i in ast.literal_eval(obj):
+        L.append(i['name'])
+    return L
+
+def convert3(obj):
+    L = []
+    counter = 0
+    for i in ast.literal_eval(obj):
+        if counter != 3:
+            L.append(i['name'])
+            counter += 1
+        else:
+            break
+    return L
+
+def fetch_director(obj):
+    L = []
+    for i in ast.literal_eval(obj):
+        if i['job'] == 'Director':
+            L.append(i['name'])
+            break
+    return L
+
+def prepare_data():
+    """Generate pickle files from CSV if they don't exist"""
+    movies_df = pd.read_csv('tmdb_5000_movies.csv')
+    credits_df = pd.read_csv('tmdb_5000_credits.csv')
+    
+    movies_df = movies_df.merge(credits_df, on='title')
+    movies_df = movies_df[['movie_id', 'title', 'overview', 'genres', 'keywords', 'cast', 'crew']]
+    movies_df.dropna(inplace=True)
+    
+    movies_df['genres'] = movies_df['genres'].apply(convert)
+    movies_df['keywords'] = movies_df['keywords'].apply(convert)
+    movies_df['cast'] = movies_df['cast'].apply(convert3)
+    movies_df['crew'] = movies_df['crew'].apply(fetch_director)
+    
+    movies_df['genres'] = movies_df['genres'].apply(lambda x: [i.replace(" ", "") for i in x])
+    movies_df['keywords'] = movies_df['keywords'].apply(lambda x: [i.replace(" ", "") for i in x])
+    movies_df['cast'] = movies_df['cast'].apply(lambda x: [i.replace(" ", "") for i in x])
+    movies_df['crew'] = movies_df['crew'].apply(lambda x: [i.replace(" ", "") for i in x])
+    
+    movies_df['tags'] = movies_df['overview'].fillna('') + ' ' + movies_df['genres'].apply(lambda x: ' '.join(x)) + ' ' + movies_df['keywords'].apply(lambda x: ' '.join(x)) + ' ' + movies_df['cast'].apply(lambda x: ' '.join(x)) + ' ' + movies_df['crew'].apply(lambda x: ' '.join(x))
+    movies_df['tags'] = movies_df['tags'].apply(lambda x: x.lower())
+    
+    new_df = movies_df[['movie_id', 'title', 'tags']]
+    
+    # Create movie_dict.pkl
+    movies_dict = {
+        'movie_id': new_df['movie_id'].values,
+        'title': new_df['title'].values,
+        'tags': new_df['tags'].values,
+    }
+    with open('movie_dict.pkl', 'wb') as f:
+        pickle.dump(movies_dict, f)
+    
+    # Create similarity.pkl
+    from sklearn.feature_extraction.text import CountVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    
+    cv = CountVectorizer(max_features=5000, stop_words='english')
+    vectors = cv.fit_transform(new_df['tags']).toarray()
+    similarity = cosine_similarity(vectors)
+    
+    with open('similarity.pkl', 'wb') as f:
+        pickle.dump(similarity, f)
+    
+    return movies_dict, similarity
+
+# -------------------------------
 # Load Data
 # -------------------------------
+# Check if pickle files exist, if not generate them
+if not os.path.exists('movie_dict.pkl') or not os.path.exists('similarity.pkl'):
+    st.info("Generating movie data... Please wait.")
+    data, similarity = prepare_data()
+else:
+    data = pickle.load(open('movie_dict.pkl', 'rb'))
+    similarity = pickle.load(open('similarity.pkl', 'rb'))
+
 # Fix pickle data: flatten 2D arrays and filter empty ones
-data = pickle.load(open('movie_dict.pkl', 'rb'))
 fixed_data = {}
 for k, v in data.items():
     arr = np.array(v)
     if arr.size > 0:
         fixed_data[k] = arr.flatten()
 movies = pd.DataFrame(fixed_data)
-similarity = pickle.load(open('similarity.pkl', 'rb'))
 
 movies_list = movies['title'].values
 
